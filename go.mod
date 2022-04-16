@@ -1,3 +1,3 @@
-module hello-world
+module mud
 
 go 1.18
