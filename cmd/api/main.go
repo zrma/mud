@@ -1,10 +1,15 @@
 package main
 
 import (
-	"io/ioutil"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/streadway/amqp"
+
+	"mud/pkg/k8s"
+	"mud/pkg/mq"
 )
 
 const defaultAddr = ":8080"
@@ -16,16 +21,48 @@ func main() {
 	}
 	log.Printf("Server listening on port %s", addr)
 
-	http.HandleFunc("/", home)
+	secret, err := k8s.GetSecret()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	opt := mq.Option{
+		Host:     "rabbitmq.rabbitmq.svc.cluster.local",
+		Port:     5672,
+		Id:       secret.Id,
+		Password: secret.Password,
+	}
+	client, err := mq.New(opt)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer client.Close()
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	h := handler{
+		hostname: hostname,
+		client:   client,
+	}
+
+	http.HandleFunc("/", h.home)
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server listening error: %+v", err)
 	}
 }
 
-func home(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequest(http.MethodGet, "http://worker-internal", nil)
-	if err != nil {
+type handler struct {
+	client   *mq.Wrapper
+	hostname string
+}
+
+func (h handler) home(w http.ResponseWriter, r *http.Request) {
+	msg := fmt.Sprintf("Host[%s] received from %s, %s", h.hostname, r.RemoteAddr, r.Method)
+	if err := createTask(h.client, msg); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		msg := "Error creating request: " + err.Error()
 		w.WriteHeader(http.StatusOK)
@@ -34,33 +71,42 @@ func home(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		msg := "Error sending request: " + err.Error()
-		w.WriteHeader(http.StatusOK)
-		if n, err := w.Write([]byte(msg)); err != nil {
-			log.Printf("Error writing response: %+v, %d", err, n)
-		}
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		msg := "Error reading response: " + err.Error()
-		w.WriteHeader(http.StatusOK)
-		if n, err := w.Write([]byte(msg)); err != nil {
-			log.Printf("Error writing response: %+v, %d", err, n)
-		}
-		return
-	}
-
-	log.Printf("api received request: %s %s", r.Method, r.URL.Path)
 	w.WriteHeader(http.StatusOK)
-	n, err := w.Write([]byte("API server " + string(body)))
+	n, err := w.Write([]byte("API server " + h.hostname + " received request"))
 	if err != nil {
 		log.Printf("api failed to write response: %+v, %d", err, n)
 	}
+}
+
+func createTask(client *mq.Wrapper, msg string) error {
+	ch := client.Chan
+
+	q, err := ch.QueueDeclare(
+		"task_queue", // name
+		false,        // durable
+		false,        // delete when unused
+		false,        // exclusive
+		false,        // no-wait
+		nil,          // arguments
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare a queue: %+v", err)
+	}
+
+	body := fmt.Sprintf("message: %s", msg)
+	if err := ch.Publish(
+		"",     // exchange
+		q.Name, // routing key
+		false,  // mandatory
+		false,
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "text/plain",
+			Body:         []byte(body),
+		},
+	); err != nil {
+		return fmt.Errorf("failed to publish a message: %+v", err)
+	}
+	return nil
 }

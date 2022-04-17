@@ -1,15 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  namespace: mud
   name: api
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
+      namespace: mud
       app: api
   template:
     metadata:
       labels:
+        namespace: mud
         app: api
     spec:
       containers:

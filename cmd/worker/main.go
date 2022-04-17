@@ -1,32 +1,93 @@
 package main
 
 import (
+	"context"
 	"log"
-	"net/http"
 	"os"
+
+	"mud/pkg/k8s"
+	"mud/pkg/mq"
 )
 
-const defaultAddr = ":8080"
-
 func main() {
-	addr := defaultAddr
-	if p := os.Getenv("PORT"); p != "" {
-		addr = ":" + p
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	secret, err := k8s.GetSecret()
+	if err != nil {
+		log.Fatal(err)
 	}
-	log.Printf("Server listening on port %s", addr)
 
-	http.HandleFunc("/", home)
+	opt := mq.Option{
+		Host:     "rabbitmq.rabbitmq.svc.cluster.local",
+		Port:     5672,
+		Id:       secret.Id,
+		Password: secret.Password,
+	}
+	client, err := mq.New(opt)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer client.Close()
 
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server listening error: %+v", err)
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	worker(ctx, client, hostname)
+}
+
+func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
+	ch := client.Chan
+
+	q, err := ch.QueueDeclare(
+		"task_queue", // name
+		false,        // durable
+		false,        // delete when unused
+		false,        // exclusive
+		false,        // no-wait
+		nil,          // arguments
+	)
+	failOnError(err, "Failed to declare a queue")
+
+	err = ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	failOnError(err, "Failed to set QoS")
+
+	messages, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		false,  // auto-ack
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
+	failOnError(err, "Failed to register a consumer")
+
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+			break
+		case message := <-messages:
+			msg := message.Body
+			log.Printf("[#%s] Received a message: %s\n", hostname, msg)
+
+			if err := message.Ack(false); err != nil {
+				log.Println("Ack failed", err)
+			} else {
+				log.Println("Ack succeeded")
+			}
+		}
 	}
 }
 
-func home(w http.ResponseWriter, r *http.Request) {
-	log.Printf("worker received request: %s %s", r.Method, r.URL.Path)
-	w.WriteHeader(http.StatusOK)
-	n, err := w.Write([]byte("this is worker server"))
+func failOnError(err error, msg string) {
 	if err != nil {
-		log.Printf("worker failed to write response: %+v, %d", err, n)
+		log.Fatalf("%s: %s", msg, err)
 	}
 }

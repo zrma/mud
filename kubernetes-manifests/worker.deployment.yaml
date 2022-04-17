@@ -1,29 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  namespace: mud
   name: worker
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
+      namespace: mud
       app: worker
       tier: backend
   template:
     metadata:
       labels:
+        namespace: mud
         app: worker
         tier: backend
     spec:
       containers:
         - name: server
           image: worker
-          ports:
-            - name: http
-              containerPort: 8080
-          env:
-            - name: PORT
-              value: "8080"
-          readinessProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 5
