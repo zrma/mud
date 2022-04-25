@@ -66,7 +66,7 @@ func run() error {
 		} else {
 			fmt.Println(reply)
 		}
-		time.Sleep(time.Second * 3)
+		time.Sleep(time.Second)
 	}
 
 	fmt.Println("done")

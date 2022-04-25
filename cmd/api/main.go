@@ -1,22 +1,19 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"mime"
 	"net"
 	"os"
 	"time"
 
-	"github.com/streadway/amqp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"mud/pb"
 	"mud/pkg/k8s"
 	"mud/pkg/mq"
+	"mud/pkg/service"
 )
 
 const defaultAddr = ":8080"
@@ -63,9 +60,9 @@ func main() {
 		log.Fatal(fmt.Errorf("failed to declare a queue: %+v", err))
 	}
 
-	service := service{
-		channel: channel,
-		queue:   queue,
+	svc := service.Service{
+		Channel: channel,
+		Queue:   queue,
 	}
 
 	var opts []grpc.ServerOption
@@ -83,54 +80,10 @@ func main() {
 			PermitWithoutStream: true,
 		}),
 	)
-	server := grpc.NewServer(opts...)
-	pb.RegisterMudServer(server, &service)
+	svr := grpc.NewServer(opts...)
+	pb.RegisterMudServer(svr, &svc)
 
-	if err := server.Serve(listener); err != nil {
+	if err := svr.Serve(listener); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
-}
-
-type service struct {
-	pb.UnimplementedMudServer
-
-	queue   amqp.Queue
-	channel *amqp.Channel
-}
-
-func (s service) Move(_ context.Context, req *pb.MoveRequest) (*pb.MoveReply, error) {
-	if err := s.createTask(req); err != nil {
-		return &pb.MoveReply{
-			Player: req.GetPlayer(),
-			Ok:     false,
-			Err:    err.Error(),
-		}, nil
-	}
-
-	return &pb.MoveReply{
-		Player: req.GetPlayer(),
-		Ok:     true,
-	}, nil
-}
-
-func (s service) createTask(req *pb.MoveRequest) error {
-	body, err := protojson.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	if err := s.channel.Publish(
-		"",           // exchange
-		s.queue.Name, // routing key
-		false,        // mandatory
-		false,
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			ContentType:  mime.TypeByExtension(".txt"),
-			Body:         body,
-		},
-	); err != nil {
-		return fmt.Errorf("failed to publish a message: %+v", err)
-	}
-	return nil
 }
