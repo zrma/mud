@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"mud/pb"
@@ -38,10 +39,12 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	worker(ctx, client, hostname)
+	if err := worker(ctx, client, hostname); err != nil {
+		log.Fatalln(err)
+	}
 }
 
-func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
+func worker(ctx context.Context, client *mq.Wrapper, hostname string) error {
 	ch := client.Chan
 
 	q, err := ch.QueueDeclare(
@@ -52,14 +55,17 @@ func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
 		false,        // no-wait
 		nil,          // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
+	if err != nil {
+		return errors.Wrap(err, "failed to declare a queue")
+	}
 
-	err = ch.Qos(
+	if err := ch.Qos(
 		1,     // prefetch count
 		0,     // prefetch size
 		false, // global
-	)
-	failOnError(err, "Failed to set QoS")
+	); err != nil {
+		return errors.Wrap(err, "failed to set QoS")
+	}
 
 	messages, err := ch.Consume(
 		q.Name, // queue
@@ -70,7 +76,9 @@ func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
 		false,  // no-wait
 		nil,    // args
 	)
-	failOnError(err, "Failed to register a consumer")
+	if err != nil {
+		return errors.Wrap(err, "failed to register a consumer")
+	}
 
 	for ctx.Err() == nil {
 		select {
@@ -93,10 +101,5 @@ func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
 			}
 		}
 	}
-}
-
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-	}
+	return nil
 }

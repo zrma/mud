@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/pborman/uuid v1.2.1
+	github.com/pkg/errors v0.9.1
 	github.com/streadway/amqp v1.0.0
 	google.golang.org/grpc v1.36.1
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.2.0

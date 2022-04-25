@@ -1,9 +1,9 @@
 package mq
 
 import (
-	"errors"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/streadway/amqp"
 )
 
@@ -14,20 +14,16 @@ func New(option Option) (*Wrapper, error) {
 	)
 	conn, err := amqp.Dial(endpoint)
 	if err != nil {
-		return nil, errMsg(err, "Failed to connect to RabbitMQ")
+		return nil, errors.Wrap(err, "Failed to connect to RabbitMQ")
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
 		func() { _ = conn.Close() }()
-		return nil, errMsg(err, "Failed to open a channel")
+		return nil, errors.Wrap(err, "Failed to open a channel")
 	}
 
 	return &Wrapper{Conn: conn, Chan: ch}, nil
-}
-
-func errMsg(err error, msg string) error {
-	return errors.New(fmt.Sprintf("%s: %s", msg, err))
 }
 
 type Option struct {
