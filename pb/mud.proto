@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option go_package = ".;pb";
+
+service Mud {
+    rpc Move (MoveRequest) returns (MoveReply) {}
+}
+
+message MoveRequest {
+    string player = 1;
+    Direction direction = 2;
+}
+
+enum Direction {
+    NORTH = 0;
+    SOUTH = 1;
+    EAST = 2;
+    WEST = 3;
+}
+
+message MoveReply {
+    string player = 1;
+    bool ok = 2;
+}
+
+//message Position {
+//    int32 x = 1;
+//    int32 y = 2;
+//}
