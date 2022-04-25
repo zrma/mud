@@ -5,6 +5,9 @@ import (
 	"log"
 	"os"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
+	"mud/pb"
 	"mud/pkg/k8s"
 	"mud/pkg/mq"
 )
@@ -74,8 +77,14 @@ func worker(ctx context.Context, client *mq.Wrapper, hostname string) {
 		case <-ctx.Done():
 			break
 		case message := <-messages:
-			msg := message.Body
-			log.Printf("[#%s] Received a message: %s\n", hostname, msg)
+			body := message.Body
+			msg := pb.MoveRequest{}
+			err := protojson.Unmarshal(body, &msg)
+			if err != nil {
+				log.Println("failed", err)
+			} else {
+				log.Printf("[#%s] Received a message: %s to %s\n", hostname, msg.GetPlayer(), msg.GetDirection())
+			}
 
 			if err := message.Ack(false); err != nil {
 				log.Println("Ack failed", err)

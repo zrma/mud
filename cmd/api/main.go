@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
-	"net/http"
+	"mime"
+	"net"
 	"os"
+	"time"
 
 	"github.com/streadway/amqp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/protobuf/encoding/protojson"
 
+	"mud/pb"
 	"mud/pkg/k8s"
 	"mud/pkg/mq"
 )
@@ -20,6 +27,11 @@ func main() {
 		addr = ":" + p
 	}
 	log.Printf("Server listening on port %s", addr)
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
 
 	secret, err := k8s.GetSecret()
 	if err != nil {
@@ -38,51 +50,8 @@ func main() {
 	}
 	defer client.Close()
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	h := handler{
-		hostname: hostname,
-		client:   client,
-	}
-
-	http.HandleFunc("/", h.home)
-
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server listening error: %+v", err)
-	}
-}
-
-type handler struct {
-	client   *mq.Wrapper
-	hostname string
-}
-
-func (h handler) home(w http.ResponseWriter, r *http.Request) {
-	msg := fmt.Sprintf("Host[%s] received from %s, %s", h.hostname, r.RemoteAddr, r.Method)
-	if err := createTask(h.client, msg); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		msg := "Error creating request: " + err.Error()
-		w.WriteHeader(http.StatusOK)
-		if n, err := w.Write([]byte(msg)); err != nil {
-			log.Printf("Error writing response: %+v, %d", err, n)
-		}
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	n, err := w.Write([]byte("API server " + h.hostname + " received request"))
-	if err != nil {
-		log.Printf("api failed to write response: %+v, %d", err, n)
-	}
-}
-
-func createTask(client *mq.Wrapper, msg string) error {
-	ch := client.Chan
-
-	q, err := ch.QueueDeclare(
+	channel := client.Chan
+	queue, err := channel.QueueDeclare(
 		"task_queue", // name
 		false,        // durable
 		false,        // delete when unused
@@ -91,19 +60,74 @@ func createTask(client *mq.Wrapper, msg string) error {
 		nil,          // arguments
 	)
 	if err != nil {
-		return fmt.Errorf("failed to declare a queue: %+v", err)
+		log.Fatal(fmt.Errorf("failed to declare a queue: %+v", err))
 	}
 
-	body := fmt.Sprintf("message: %s", msg)
-	if err := ch.Publish(
-		"",     // exchange
-		q.Name, // routing key
-		false,  // mandatory
+	service := service{
+		channel: channel,
+		queue:   queue,
+	}
+
+	var opts []grpc.ServerOption
+	opts = append(opts,
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     30 * time.Second,
+			MaxConnectionAge:      1 * time.Minute,
+			MaxConnectionAgeGrace: 5 * time.Second,
+			// pings the client to see if the transport is still alive.
+			Time:    20 * time.Second,
+			Timeout: 5 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             12 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
+	server := grpc.NewServer(opts...)
+	pb.RegisterMudServer(server, &service)
+
+	if err := server.Serve(listener); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+}
+
+type service struct {
+	pb.UnimplementedMudServer
+
+	queue   amqp.Queue
+	channel *amqp.Channel
+}
+
+func (s service) Move(_ context.Context, req *pb.MoveRequest) (*pb.MoveReply, error) {
+	if err := s.createTask(req); err != nil {
+		return &pb.MoveReply{
+			Player: req.GetPlayer(),
+			Ok:     false,
+			Err:    err.Error(),
+		}, nil
+	}
+
+	return &pb.MoveReply{
+		Player: req.GetPlayer(),
+		Ok:     true,
+	}, nil
+}
+
+func (s service) createTask(req *pb.MoveRequest) error {
+	body, err := protojson.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	if err := s.channel.Publish(
+		"",           // exchange
+		s.queue.Name, // routing key
+		false,        // mandatory
 		false,
 		amqp.Publishing{
 			DeliveryMode: amqp.Persistent,
-			ContentType:  "text/plain",
-			Body:         []byte(body),
+			ContentType:  mime.TypeByExtension(".txt"),
+			Body:         body,
 		},
 	); err != nil {
 		return fmt.Errorf("failed to publish a message: %+v", err)
