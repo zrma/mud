@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"os"
@@ -47,22 +46,13 @@ func main() {
 	}
 	defer client.Close()
 
-	channel := client.Chan
-	queue, err := channel.QueueDeclare(
-		"task_queue", // name
-		false,        // durable
-		false,        // delete when unused
-		false,        // exclusive
-		false,        // no-wait
-		nil,          // arguments
-	)
+	publisher, err := client.Publisher("task_queue")
 	if err != nil {
-		log.Fatal(fmt.Errorf("failed to declare a queue: %+v", err))
+		log.Fatalln(err)
 	}
 
 	svc := service.Service{
-		Channel: channel,
-		Queue:   queue,
+		Publisher: publisher,
 	}
 
 	var opts []grpc.ServerOption

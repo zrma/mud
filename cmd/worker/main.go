@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/pkg/errors"
+	"github.com/streadway/amqp"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"mud/pb"
@@ -39,45 +39,24 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	if err := worker(ctx, client, hostname); err != nil {
+	consumer, err := client.Consumer("task_queue")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := worker(ctx, consumer, hostname); err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func worker(ctx context.Context, client *mq.Wrapper, hostname string) error {
-	ch := client.Chan
+type Consumer interface {
+	Consume() (<-chan amqp.Delivery, error)
+}
 
-	q, err := ch.QueueDeclare(
-		"task_queue", // name
-		false,        // durable
-		false,        // delete when unused
-		false,        // exclusive
-		false,        // no-wait
-		nil,          // arguments
-	)
+func worker(ctx context.Context, consumer Consumer, hostname string) error {
+	messages, err := consumer.Consume()
 	if err != nil {
-		return errors.Wrap(err, "failed to declare a queue")
-	}
-
-	if err := ch.Qos(
-		1,     // prefetch count
-		0,     // prefetch size
-		false, // global
-	); err != nil {
-		return errors.Wrap(err, "failed to set QoS")
-	}
-
-	messages, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		false,  // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
-	if err != nil {
-		return errors.Wrap(err, "failed to register a consumer")
+		return err
 	}
 
 	for ctx.Err() == nil {
