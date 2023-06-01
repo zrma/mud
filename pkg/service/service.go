@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"mud/pb"
+	"github.com/zrma/mud/pb"
 )
 
 type Publisher interface {
@@ -22,8 +22,7 @@ func (s Service) Move(_ context.Context, req *pb.MoveRequest) (*pb.MoveReply, er
 		return &pb.MoveReply{
 			Player: req.GetPlayer(),
 			Ok:     false,
-			Err:    err.Error(),
-		}, nil
+		}, err
 	}
 
 	return &pb.MoveReply{

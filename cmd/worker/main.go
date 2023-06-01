@@ -8,9 +8,9 @@ import (
 	"github.com/streadway/amqp"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"mud/pb"
-	"mud/pkg/k8s"
-	"mud/pkg/mq"
+	"github.com/zrma/mud/pb"
+	"github.com/zrma/mud/pkg/k8s"
+	"github.com/zrma/mud/pkg/mq"
 )
 
 func main() {

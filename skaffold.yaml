@@ -1,28 +1,30 @@
-# To learn more about the skaffold.yaml schema visit
-# https://skaffold.dev/docs/references/yaml/
-apiVersion: skaffold/v2beta19
+apiVersion: skaffold/v4beta5
 kind: Config
+metadata:
+  name: mud
 build:
-  tagPolicy:
-    sha256: { }
+  local:
+    push: false
   artifacts:
-    - context: .
-      image: api
+    - image: zrma/mud/api
+      context: .
       docker:
         dockerfile: docker/api.Dockerfile
-        noCache: false
-        squash: false
-    - context: .
-      image: worker
+    - image: rabbitmqoperator/cluster-operator
+      buildpacks:
+        builder: gcr.io/buildpacks/builder:v1
+    - image: zrma/mud/worker
+      context: .
       docker:
         dockerfile: docker/worker.Dockerfile
-        noCache: false
-        squash: false
-deploy:
-  kubectl:
-    manifests:
-      - kubernetes-manifests/**
-profiles:
-  - name: cloudbuild
-    build:
-      googleCloudBuild: { }
+manifests:
+  rawYaml:
+    - k8s/namespace.mud.yaml
+    - k8s/namespace.yaml
+    - k8s/rabbitmq-cluster-operator.yml
+    - k8s/rabbitmq.read.role.yaml
+    - k8s/rabbitmq.role.bind.yaml
+    - k8s/rabbitmq.service.yaml
+    - kubernetes-manifests/api.deployment.yaml
+    - kubernetes-manifests/api.service.yaml
+    - kubernetes-manifests/worker.deployment.yaml

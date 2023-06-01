@@ -9,10 +9,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"mud/pb"
-	"mud/pkg/k8s"
-	"mud/pkg/mq"
-	"mud/pkg/service"
+	"github.com/zrma/mud/pb"
+	"github.com/zrma/mud/pkg/k8s"
+	"github.com/zrma/mud/pkg/mq"
+	"github.com/zrma/mud/pkg/service"
 )
 
 const defaultAddr = ":8080"

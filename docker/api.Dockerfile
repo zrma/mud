@@ -1,25 +1,21 @@
 # Go binaries are standalone, so use a multi-stage build to produce smaller images.
 
 # Use base golang image from Docker Hub
-FROM golang:1.20 as build
+FROM golang:1.19-alpine as build
 
-WORKDIR /mud
+WORKDIR /app
 
-# Install dependencies in go.mod and go.sum
-COPY go.mod go.sum ./
+## module download
+COPY go.mod .
+COPY go.sum .
 RUN go mod download
 
-# Copy rest of the application source code
-COPY . ./
+## copy source
+COPY ./pkg ./pkg
+COPY ./pb ./pb
+COPY ./cmd ./cmd
 
-# Compile the application to /app.
-# Skaffold passes in debug-oriented compiler flags
-ARG SKAFFOLD_GO_GCFLAGS
-RUN echo "Go gcflags: ${SKAFFOLD_GO_GCFLAGS}"
-
-WORKDIR ./cmd/api/
-
-RUN go build -gcflags="${SKAFFOLD_GO_GCFLAGS}" -mod=readonly -v -trimpath -o /app main.go
+RUN go build -o /app ./cmd/api
 
 # Now create separate deployment image
 FROM gcr.io/distroless/base
@@ -29,6 +25,6 @@ FROM gcr.io/distroless/base
 # See https://golang.org/pkg/runtime/
 ENV GOTRACEBACK=single
 
-WORKDIR /mud
+WORKDIR /app
 COPY --from=build /app .
 ENTRYPOINT ["./app"]

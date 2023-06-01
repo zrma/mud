@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"mud/pb"
+	"github.com/zrma/mud/pb"
 )
 
 const (
@@ -62,7 +62,7 @@ func run() error {
 			Player:    name,
 			Direction: directions[step],
 		}); err != nil {
-			return fmt.Errorf("move failed: %v %v", err, reply.GetErr())
+			return fmt.Errorf("move failed: %v", err)
 		} else {
 			fmt.Println(reply)
 		}
